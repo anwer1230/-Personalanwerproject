@@ -168,24 +168,28 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Client not initialized" });
       }
 
-      await client.invoke(
-        new Api.auth.SignIn({
-          phoneNumber,
-          phoneCodeHash,
-          phoneCode: code,
-        })
-      );
+      try {
+        await client.invoke(
+          new Api.auth.SignIn({
+            phoneNumber,
+            phoneCodeHash,
+            phoneCode: code,
+          })
+        );
+      } catch (signInErr: any) {
+        if (signInErr.errorMessage === 'SESSION_PASSWORD_NEEDED') {
+          return res.json({ message: "Password required", needsPassword: true });
+        }
+        throw signInErr;
+      }
 
       const sessionString = (client.session as StringSession).save();
       await storage.setTgSetting("session", sessionString);
       
-      res.json({ message: "Logged in successfully" });
+      res.json({ message: "Logged in successfully", needsPassword: false });
     } catch (err: any) {
-      if (err.message?.includes('SESSION_PASSWORD_NEEDED')) {
-        res.json({ message: "Password required", needsPassword: true });
-      } else {
-        res.status(400).json({ message: err.message || "Invalid code" });
-      }
+      console.error("Verify code error:", err);
+      res.status(400).json({ message: err.errorMessage || err.message || "Invalid code" });
     }
   });
 

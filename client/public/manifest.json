@@ -1,0 +1,65 @@
+{
+  "name": "Link Manager - تطبيق إدارة الروابط",
+  "short_name": "Link Manager",
+  "description": "تطبيق متكامل لإدارة والتحكم في روابط Telegram و WhatsApp مع الأتمتة والبث الفوري",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#0088cc",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "screenshots": [
+    {
+      "src": "/favicon.png",
+      "type": "image/png",
+      "sizes": "540x720"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Telegram",
+      "short_name": "TG",
+      "description": "اذهب إلى لوحة التحكم التيليجرام",
+      "url": "/telegram",
+      "icons": [
+        {
+          "src": "/favicon.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "WhatsApp",
+      "short_name": "WA",
+      "description": "اذهب إلى لوحة التحكم الواتساب",
+      "url": "/whatsapp",
+      "icons": [
+        {
+          "src": "/favicon.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
