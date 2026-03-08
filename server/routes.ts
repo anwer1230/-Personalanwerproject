@@ -200,27 +200,36 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Client not initialized" });
       }
 
-      // Get password information from server
-      const passwordData = await client.invoke(new Api.account.GetPassword());
-      
-      // Use the password directly with SRP if needed
-      let passwordInputObj: any = undefined;
-      
-      if (passwordData.currentAlgo) {
-        // If server has SRP support, we need to compute it
-        // For now, we'll use a simpler approach
-        const srp = await client.computeNewPasswordHash(passwordData, password);
-        passwordInputObj = srp;
-      } else {
-        // Fallback for older versions
-        passwordInputObj = password;
-      }
+      try {
+        // Get password salt from server
+        const pwData = await client.invoke(new Api.account.GetPassword());
+        
+        // Compute password hash using the server's salt
+        const passwordHash = await client.computeNewPasswordHash(
+          pwData.currentAlgo,
+          Buffer.from(password, 'utf-8')
+        );
 
-      await client.invoke(
-        new Api.auth.CheckPassword({
-          password: passwordInputObj,
-        })
-      );
+        // Send verification
+        await client.invoke(
+          new Api.auth.CheckPassword({
+            password: passwordHash,
+          })
+        );
+      } catch (invokeErr: any) {
+        // If invoke fails, try simpler approach
+        console.warn("SRP password attempt failed, trying fallback...", invokeErr?.errorMessage);
+        
+        // Fallback: Try with plain password (for accounts without 2FA)
+        const pwData = await client.invoke(new Api.account.GetPassword());
+        const hashBytes = Buffer.from(password, 'utf-8');
+        
+        await client.invoke(
+          new Api.auth.CheckPassword({
+            password: hashBytes as any,
+          })
+        );
+      }
 
       const sessionString = (client.session as StringSession).save();
       await storage.setTgSetting("session", sessionString);
@@ -228,7 +237,8 @@ export async function registerRoutes(
       res.json({ message: "Logged in successfully" });
     } catch (err: any) {
       console.error("Password verification error:", err);
-      res.status(400).json({ message: err.errorMessage || err.message || "Invalid password" });
+      const errorMsg = err.errorMessage || err.message || "Invalid password";
+      res.status(400).json({ message: errorMsg });
     }
   });
 

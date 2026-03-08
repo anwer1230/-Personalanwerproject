@@ -8,6 +8,7 @@ import Home from "./pages/Home";
 import TelegramDashboard from "./pages/TelegramDashboard";
 import WhatsappDashboard from "./pages/WhatsappDashboard";
 import NotFound from "@/pages/not-found";
+import { InstallPWA } from "@/components/InstallPWA";
 
 function Router() {
   return (
@@ -27,6 +28,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
+        <InstallPWA />
         <Router />
       </TooltipProvider>
     </QueryClientProvider>
