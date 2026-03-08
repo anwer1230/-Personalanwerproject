@@ -200,9 +200,25 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Client not initialized" });
       }
 
+      // Get password information from server
+      const passwordData = await client.invoke(new Api.account.GetPassword());
+      
+      // Use the password directly with SRP if needed
+      let passwordInputObj: any = undefined;
+      
+      if (passwordData.currentAlgo) {
+        // If server has SRP support, we need to compute it
+        // For now, we'll use a simpler approach
+        const srp = await client.computeNewPasswordHash(passwordData, password);
+        passwordInputObj = srp;
+      } else {
+        // Fallback for older versions
+        passwordInputObj = password;
+      }
+
       await client.invoke(
         new Api.auth.CheckPassword({
-          password: password as any,
+          password: passwordInputObj,
         })
       );
 
@@ -211,7 +227,8 @@ export async function registerRoutes(
       
       res.json({ message: "Logged in successfully" });
     } catch (err: any) {
-      res.status(400).json({ message: err.message || "Invalid password" });
+      console.error("Password verification error:", err);
+      res.status(400).json({ message: err.errorMessage || err.message || "Invalid password" });
     }
   });
 
