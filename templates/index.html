@@ -3,19 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>مركز التليجرام الذكي - سرعة انجاز</title>
+    <title>مركز سرعة انجاز - تيليجرام</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#5865f2">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <script>
+        // مسح الـ service workers القديمة
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                for (let r of registrations) { r.unregister(); }
+            navigator.serviceWorker.getRegistrations().then(regs => {
+                regs.forEach(r => { if (!r.scriptURL.includes('pwa-sw.js')) r.unregister(); });
             });
+            // تسجيل الـ service worker الجديدة للـ PWA
+            navigator.serviceWorker.register('/static/pwa-sw.js').catch(() => {});
         }
         if ('caches' in window) {
-            caches.keys().then(function(names) {
-                for (let name of names) { caches.delete(name); }
-            });
+            caches.keys().then(names => names.forEach(n => { if (n !== 'suraa-v1') caches.delete(n); }));
         }
     </script>
     <style>
@@ -333,11 +336,57 @@
             <p>نظام التليجرام الذكي</p>
         </div>
     </div>
-    <div>
+    <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="showInstallModal()" style="background:linear-gradient(135deg,#25d366,#128c7e);color:#fff;border:none;border-radius:10px;padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px">
+            <i class="fas fa-mobile-alt"></i> تثبيت التطبيق
+        </button>
         <div id="connectionStatus" class="status-badge disconnected">
             <div class="status-dot"></div>
             <span id="connectionText">غير متصل</span>
         </div>
+    </div>
+</div>
+
+<!-- Install Modal -->
+<div id="installModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:18px;padding:28px;max-width:480px;width:90%;max-height:90vh;overflow-y:auto;direction:rtl">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+            <h3 style="font-size:18px;font-weight:700"><i class="fas fa-mobile-alt" style="color:#25d366"></i> تثبيت التطبيق على الجوال</h3>
+            <button onclick="document.getElementById('installModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">✕</button>
+        </div>
+
+        <div style="background:rgba(37,211,102,.1);border:1px solid rgba(37,211,102,.3);border-radius:12px;padding:14px;margin-bottom:16px;font-size:13px">
+            <i class="fas fa-info-circle" style="color:#25d366"></i>
+            <strong> تطبيق ويب تقدمي (PWA)</strong> — يمكنك تثبيته على هاتفك ليعمل مثل أي تطبيق جوال
+        </div>
+
+        <div style="margin-bottom:16px">
+            <h4 style="margin-bottom:10px;color:var(--accent)">📱 Android (Chrome):</h4>
+            <ol style="font-size:13px;line-height:2;padding-right:20px;color:var(--text-muted)">
+                <li>افتح الرابط في متصفح <strong style="color:var(--text)">Chrome</strong></li>
+                <li>اضغط على القائمة <strong style="color:var(--text)">⋮</strong> (ثلاث نقاط)</li>
+                <li>اختر <strong style="color:var(--accent)">"إضافة إلى الشاشة الرئيسية"</strong></li>
+                <li>اضغط <strong style="color:var(--text)">إضافة</strong> — سيظهر التطبيق على هاتفك مباشرة!</li>
+            </ol>
+        </div>
+
+        <div style="margin-bottom:20px">
+            <h4 style="margin-bottom:10px;color:var(--primary)">🍎 iPhone (Safari):</h4>
+            <ol style="font-size:13px;line-height:2;padding-right:20px;color:var(--text-muted)">
+                <li>افتح الرابط في متصفح <strong style="color:var(--text)">Safari</strong></li>
+                <li>اضغط على زر <strong style="color:var(--text)">المشاركة</strong> <i class="fas fa-share-square"></i></li>
+                <li>اختر <strong style="color:var(--primary)">"إضافة إلى الشاشة الرئيسية"</strong></li>
+            </ol>
+        </div>
+
+        <div style="background:var(--bg-input);border-radius:10px;padding:12px;font-size:12px;color:var(--text-muted);margin-bottom:16px;word-break:break-all">
+            <i class="fas fa-link" style="color:var(--accent)"></i> رابط التطبيق:
+            <span id="appUrlDisplay" style="color:var(--text);font-weight:600"></span>
+        </div>
+
+        <button id="installBtn" onclick="triggerInstall()" style="width:100%;background:linear-gradient(135deg,var(--primary),var(--accent));color:#fff;border:none;border-radius:12px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;display:none">
+            <i class="fas fa-download"></i> تثبيت الآن (Android Chrome)
+        </button>
     </div>
 </div>
 
@@ -428,7 +477,7 @@
             <div class="stat-info"><p>الرسائل المرسلة</p><h3 id="statSent">0</h3></div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon" style="background:rgba(237,66,69,.15);color:var(--danger)"><i class="fas fa-exclamation-circle"></i></div>
+            <div class="stat-icon" style="background:rgba(237,66,69,.15);color:var(--danger)"><i class="fas fa-times-circle"></i></div>
             <div class="stat-info"><p>الأخطاء</p><h3 id="statErrors">0</h3></div>
         </div>
         <div class="stat-card">
@@ -436,8 +485,16 @@
             <div class="stat-info"><p>التنبيهات</p><h3 id="statAlerts">0</h3></div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon" style="background:rgba(250,168,26,.15);color:var(--warning)"><i class="fas fa-clock"></i></div>
-            <div class="stat-info"><p>حالة النظام</p><h3 id="statStatus" style="font-size:14px">متوقف</h3></div>
+            <div class="stat-icon" style="background:rgba(59,165,92,.15);color:var(--success)"><i class="fas fa-reply"></i></div>
+            <div class="stat-info"><p>الردود التلقائية</p><h3 id="statReplies">0</h3></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(250,168,26,.15);color:var(--warning)"><i class="fas fa-circle" id="statStatusDot"></i></div>
+            <div class="stat-info"><p>حالة المراقبة</p><h3 id="statStatus" style="font-size:13px">متوقف</h3></div>
+        </div>
+        <div class="stat-card" style="cursor:pointer;opacity:.8" onclick="resetStats()" title="إعادة تعيين الإحصائيات">
+            <div class="stat-icon" style="background:rgba(139,148,158,.1);color:var(--text-muted)"><i class="fas fa-redo-alt"></i></div>
+            <div class="stat-info"><p style="color:var(--text-muted)">إعادة التعيين</p><h3 style="font-size:11px;color:var(--text-muted)">اضغط هنا</h3></div>
         </div>
     </div>
 
@@ -545,20 +602,35 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">المجموعات المستهدفة</label>
-                <div style="display:flex;gap:8px;margin-bottom:8px">
-                    <input class="form-input" id="groupInput" placeholder="معرف المجموعة أو @username" style="flex:1" onkeydown="if(event.key==='Enter') addGroup()">
-                    <button class="btn btn-outline btn-sm" onclick="addGroup()"><i class="fas fa-plus"></i> إضافة</button>
+                <label class="form-label"><i class="fas fa-link" style="color:var(--accent)"></i> روابط المجموعات المستهدفة</label>
+                <textarea class="form-input" id="rawGroupsInput" rows="4" style="resize:vertical;font-size:12px;direction:ltr;text-align:left" placeholder="الصق الروابط هنا... النظام يستخرجها تلقائياً&#10;مثال:&#10;https://t.me/mygroup&#10;@channel1 @channel2&#10;روابط مختلطة مع نصوص عادية"></textarea>
+                <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+                    <button class="btn btn-sm" onclick="extractGroups()" style="background:linear-gradient(135deg,var(--accent),var(--primary));color:#fff;border:none">
+                        <i class="fas fa-magic"></i> استخراج تلقائي
+                    </button>
+                    <input class="form-input" id="groupInput" placeholder="أو أضف رابطاً يدوياً..." style="flex:1;min-width:150px;direction:ltr;text-align:left" onkeydown="if(event.key==='Enter') addGroup()">
+                    <button class="btn btn-outline btn-sm" onclick="addGroup()"><i class="fas fa-plus"></i></button>
                 </div>
-                <div class="groups-container" id="groupsList"></div>
+                <div class="groups-container" id="groupsList" style="margin-top:8px"></div>
+                <div id="groupsCountBadge" style="margin-top:6px;font-size:12px;color:var(--text-muted)"></div>
+            </div>
+
+            <div id="sendProgress" style="display:none;margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px">
+                    <span style="color:var(--text-muted)">جارٍ الإرسال...</span>
+                    <span id="sendProgressText" style="color:var(--accent)">0 / 0</span>
+                </div>
+                <div style="background:var(--bg-input);border-radius:4px;height:6px;overflow:hidden">
+                    <div id="sendProgressBar" style="height:100%;background:linear-gradient(90deg,var(--primary),var(--accent));width:0%;transition:width .3s"></div>
+                </div>
             </div>
 
             <div style="display:flex;gap:10px;flex-wrap:wrap">
                 <button class="btn btn-primary" id="btnSendNow" onclick="sendNow()" style="flex:1">
-                    <i class="fas fa-paper-plane"></i> إرسال الآن
+                    <i class="fas fa-paper-plane"></i> <span id="btnSendText">إرسال الآن</span>
                 </button>
                 <button class="btn btn-success" onclick="saveSettings()">
-                    <i class="fas fa-save"></i> حفظ الإعدادات
+                    <i class="fas fa-save"></i> حفظ
                 </button>
             </div>
         </div>
@@ -592,12 +664,16 @@
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">الكلمات المراقبة</label>
-                    <div style="display:flex;gap:8px;margin-bottom:8px">
-                        <input class="form-input" id="watchWordInput" placeholder="أضف كلمة للمراقبة..." style="flex:1" onkeydown="if(event.key==='Enter') addWatchWord()">
+                    <label class="form-label"><i class="fas fa-search" style="color:var(--danger)"></i> الكلمات المراقبة</label>
+                    <textarea class="form-input" id="rawKeywordsInput" rows="3" style="resize:vertical;font-size:12px" placeholder="أدخل كلمات مفصولة بفاصلة أو سطر جديد&#10;مثال: سعر، عرض، خصم، للبيع"></textarea>
+                    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+                        <button class="btn btn-sm" onclick="extractKeywords()" style="background:linear-gradient(135deg,var(--danger),#b03030);color:#fff;border:none;white-space:nowrap">
+                            <i class="fas fa-magic"></i> استخراج
+                        </button>
+                        <input class="form-input" id="watchWordInput" placeholder="أو أضف كلمة واحدة..." style="flex:1" onkeydown="if(event.key==='Enter') addWatchWord()">
                         <button class="btn btn-outline btn-sm" onclick="addWatchWord()"><i class="fas fa-plus"></i></button>
                     </div>
-                    <div class="groups-container" id="watchWordsList"></div>
+                    <div class="groups-container" id="watchWordsList" style="margin-top:8px"></div>
                 </div>
 
                 <button class="btn btn-primary" onclick="saveSettings()" style="width:100%">
@@ -622,25 +698,45 @@
 
     <!-- Tab: Auto Reply -->
     <div id="tab-autoreply" class="tab-content">
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon" style="background:rgba(0,212,170,.15);color:var(--accent)"><i class="fas fa-reply"></i></div>
-                <div><h3>الرد التلقائي</h3><p>رد تلقائي عند استقبال كلمات محددة</p></div>
-            </div>
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon" style="background:rgba(0,212,170,.15);color:var(--accent)"><i class="fas fa-reply"></i></div>
+                    <div><h3>قواعد الرد التلقائي</h3><p>يرد على الرسالة مباشرة (reply)</p></div>
+                </div>
 
-            <div id="autoRepliesList" style="margin-bottom:16px">
-                <div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">
-                    لا توجد قواعد رد تلقائي - اضغط إضافة قاعدة
+                <div id="autoRepliesList" style="margin-bottom:16px">
+                    <div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">
+                        لا توجد قواعد - اضغط إضافة قاعدة
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <button class="btn btn-outline" onclick="addAutoReplyRow()" style="flex:1">
+                        <i class="fas fa-plus"></i> إضافة قاعدة
+                    </button>
+                    <button class="btn btn-success" onclick="saveAutoReplies()" style="flex:1">
+                        <i class="fas fa-save"></i> حفظ القواعد
+                    </button>
+                </div>
+
+                <div style="margin-top:16px;padding:12px;background:rgba(0,212,170,.05);border:1px solid rgba(0,212,170,.2);border-radius:10px;font-size:12px;color:var(--text-muted)">
+                    <i class="fas fa-info-circle" style="color:var(--accent)"></i>
+                    عند وصول رسالة تحتوي الكلمة المحددة، يتم الرد عليها مباشرة كـ <strong style="color:var(--accent)">Reply</strong> مع عرض رسالة المرسل الأصلية.
                 </div>
             </div>
 
-            <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <button class="btn btn-outline" onclick="addAutoReplyRow()" style="flex:1">
-                    <i class="fas fa-plus"></i> إضافة قاعدة
-                </button>
-                <button class="btn btn-success" onclick="saveAutoReplies()" style="flex:1">
-                    <i class="fas fa-save"></i> حفظ القواعد
-                </button>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon" style="background:rgba(59,165,92,.15);color:var(--success)"><i class="fas fa-comments"></i></div>
+                    <div><h3>سجل الردود التلقائية</h3><p id="autoReplyCountText">لا توجد ردود بعد</p></div>
+                </div>
+                <div id="autoReplyLog" style="max-height:450px;overflow-y:auto">
+                    <div style="text-align:center;padding:30px;color:var(--text-muted)">
+                        <i class="fas fa-robot" style="font-size:30px;margin-bottom:10px;display:block;opacity:.4"></i>
+                        ستظهر هنا الردود التلقائية عند تشغيلها
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -694,6 +790,34 @@ let autoReplies = [];
 let savedImagePath = null;
 let savedImageFilename = null;
 let sendType = 'manual';
+let deferredInstallPrompt = null;
+
+// PWA Install
+window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById('installBtn');
+    if (btn) btn.style.display = 'block';
+});
+
+function showInstallModal() {
+    const modal = document.getElementById('installModal');
+    modal.style.display = 'flex';
+    const urlEl = document.getElementById('appUrlDisplay');
+    if (urlEl) urlEl.textContent = window.location.origin;
+}
+
+async function triggerInstall() {
+    if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const result = await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+        if (result.outcome === 'accepted') {
+            showToast('✅ تم تثبيت التطبيق بنجاح!', 'success');
+            document.getElementById('installModal').style.display = 'none';
+        }
+    }
+}
 
 // ========================
 // Socket.IO
@@ -710,6 +834,22 @@ function initSocket() {
     socket.on('disconnect', () => addLog('🔴 انقطع الاتصال', 'alert'));
     socket.on('log_update', data => addLog(data.message || data));
     socket.on('new_alert', data => handleNewAlert(data));
+    socket.on('auto_reply_event', data => handleAutoReplyEvent(data));
+
+    socket.on('stats_update', data => {
+        if (data.sent !== undefined) document.getElementById('statSent').textContent = data.sent;
+        if (data.errors !== undefined) document.getElementById('statErrors').textContent = data.errors;
+        if (data.alerts !== undefined) document.getElementById('statAlerts').textContent = data.alerts;
+        if (data.replies !== undefined) document.getElementById('statReplies').textContent = data.replies;
+    });
+
+    socket.on('send_complete', data => {
+        document.getElementById('sendProgress').style.display = 'none';
+        document.getElementById('btnSendNow').disabled = false;
+        document.getElementById('btnSendText').textContent = 'إرسال الآن';
+        const msg = `✅ اكتمل: ${data.sent} ناجح  ❌ ${data.errors} فاشل  من أصل ${data.total}`;
+        showToast(msg, data.errors > 0 ? 'warning' : 'success');
+    });
 
     socket.on('monitoring_status', data => {
         isMonitoring = data.is_running || data.monitoring_active;
@@ -735,6 +875,7 @@ function refreshStatus() {
             document.getElementById('statSent').textContent = d.sent || 0;
             document.getElementById('statErrors').textContent = d.errors || 0;
             document.getElementById('statAlerts').textContent = d.alerts || 0;
+            document.getElementById('statReplies').textContent = d.replies || 0;
         });
 
     fetch('/api/get_settings')
@@ -1052,11 +1193,36 @@ function addGroup() {
 }
 function removeGroup(g) { groups = groups.filter(x => x !== g); renderGroups(); }
 function renderGroups() {
-    document.getElementById('groupsList').innerHTML = groups.map(g => `
-        <span class="group-tag">
-            <i class="fas fa-hashtag" style="font-size:10px"></i>${g}
-            <span class="remove" onclick="removeGroup('${g}')">✕</span>
+    const list = document.getElementById('groupsList');
+    list.innerHTML = groups.map(g => `
+        <span class="group-tag" title="${g}">
+            <i class="fas fa-at" style="font-size:10px"></i>${g.length > 30 ? g.slice(0,28)+'…' : g}
+            <span class="remove" onclick="removeGroup('${g.replace(/'/g,"\\'")}')">✕</span>
         </span>`).join('');
+    const badge = document.getElementById('groupsCountBadge');
+    if (badge) badge.textContent = groups.length ? `✅ ${groups.length} مجموعة جاهزة للإرسال` : '';
+}
+
+async function extractGroups() {
+    const raw = document.getElementById('rawGroupsInput').value.trim();
+    if (!raw) { showToast('أدخل الروابط أولاً', 'warning'); return; }
+    try {
+        const resp = await fetch('/api/parse_input', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ text: raw, mode: 'groups' })
+        });
+        const data = await resp.json();
+        if (data.success && data.items.length) {
+            let added = 0;
+            data.items.forEach(item => { if (!groups.includes(item)) { groups.push(item); added++; } });
+            renderGroups();
+            showToast(`✅ تم استخراج ${data.count} رابط (أضيف ${added} جديد)`, 'success');
+            addLog(`🔍 استُخرج ${data.count} مجموعة من النص`, 'success');
+        } else {
+            showToast('لم يتم العثور على روابط صالحة', 'warning');
+        }
+    } catch(e) { showToast('خطأ في الاستخراج', 'error'); }
 }
 
 // ========================
@@ -1073,8 +1239,29 @@ function renderWatchWords() {
     document.getElementById('watchWordsList').innerHTML = watchWords.map(w => `
         <span class="group-tag" style="background:rgba(237,66,69,.1);border-color:rgba(237,66,69,.3);color:var(--danger)">
             <i class="fas fa-search" style="font-size:10px"></i>${w}
-            <span class="remove" onclick="removeWatchWord('${w}')">✕</span>
+            <span class="remove" onclick="removeWatchWord('${w.replace(/'/g,"\\'")}')">✕</span>
         </span>`).join('');
+}
+
+async function extractKeywords() {
+    const raw = document.getElementById('rawKeywordsInput').value.trim();
+    if (!raw) { showToast('أدخل الكلمات أولاً', 'warning'); return; }
+    try {
+        const resp = await fetch('/api/parse_input', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ text: raw, mode: 'keywords' })
+        });
+        const data = await resp.json();
+        if (data.success && data.items.length) {
+            let added = 0;
+            data.items.forEach(kw => { if (!watchWords.includes(kw)) { watchWords.push(kw); added++; } });
+            renderWatchWords();
+            showToast(`✅ تم استخراج ${data.count} كلمة (أضيف ${added} جديدة)`, 'success');
+        } else {
+            showToast('لم يتم العثور على كلمات', 'warning');
+        }
+    } catch(e) { showToast('خطأ في الاستخراج', 'error'); }
 }
 
 // ========================
@@ -1160,36 +1347,113 @@ async function saveSettings() {
 // ========================
 async function sendNow() {
     if (!isConnected) { showToast('يجب تسجيل الدخول أولاً', 'error'); return; }
-    if (!groups.length) { showToast('أضف مجموعات أولاً', 'error'); return; }
 
     const message = document.getElementById('sendMessage').value.trim();
     const interval = parseInt(document.getElementById('sendInterval').value) || 60;
+    const rawGroupsText = document.getElementById('rawGroupsInput').value.trim();
+
+    // إذا كان هناك نص خام ولا توجد مجموعات مستخرجة، استخرجها أولاً تلقائياً
+    if (!groups.length && rawGroupsText) {
+        await extractGroups();
+    }
+
+    if (!groups.length) {
+        showToast('أضف مجموعات أو الصق روابط واضغط استخراج', 'error');
+        return;
+    }
 
     await saveSettings();
 
     const btn = document.getElementById('btnSendNow');
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جارٍ الإرسال...';
+    document.getElementById('btnSendText').textContent = `جارٍ الإرسال (${groups.length})...`;
+
+    if (sendType === 'manual') {
+        document.getElementById('sendProgress').style.display = 'block';
+        document.getElementById('sendProgressText').textContent = `0 / ${groups.length}`;
+        document.getElementById('sendProgressBar').style.width = '0%';
+    }
 
     try {
         const endpoint = sendType === 'scheduled' ? '/api/start_scheduled' : '/api/send_now';
         const resp = await fetch(endpoint, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ groups, message, interval, use_saved_image: true })
+            body: JSON.stringify({ groups, message, interval, raw_groups: '' })
         });
         const data = await resp.json();
         showToast(data.message, data.success ? 'success' : 'error');
         addLog(data.message, data.success ? 'success' : 'alert');
 
-        if (data.success && sendType === 'manual') {
-            document.getElementById('statSent').textContent =
-                parseInt(document.getElementById('statSent').textContent || 0) + groups.length;
+        if (!data.success) {
+            btn.disabled = false;
+            document.getElementById('btnSendText').textContent = 'إرسال الآن';
+            document.getElementById('sendProgress').style.display = 'none';
         }
-    } catch(e) { showToast('خطأ في الإرسال', 'error'); }
+        // إذا نجح الإرسال المجدول، أعد تفعيل الزر
+        if (data.success && sendType === 'scheduled') {
+            btn.disabled = false;
+            document.getElementById('btnSendText').textContent = 'إرسال الآن';
+        }
+    } catch(e) {
+        showToast('خطأ في الإرسال', 'error');
+        btn.disabled = false;
+        document.getElementById('btnSendText').textContent = 'إرسال الآن';
+        document.getElementById('sendProgress').style.display = 'none';
+    }
+}
 
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-paper-plane"></i> إرسال الآن';
+// ========================
+// Auto Reply Events
+// ========================
+let autoReplyCount = 0;
+function handleAutoReplyEvent(data) {
+    autoReplyCount++;
+    const countEl = document.getElementById('autoReplyCountText');
+    if (countEl) countEl.textContent = `${autoReplyCount} رد تلقائي`;
+
+    const log = document.getElementById('autoReplyLog');
+    if (!log) return;
+
+    // مسح placeholder إذا كان أول رد
+    if (autoReplyCount === 1) log.innerHTML = '';
+
+    const item = document.createElement('div');
+    item.style.cssText = 'border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--bg-card2)';
+    item.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:700;color:var(--accent)">
+                <i class="fas fa-robot"></i> رد تلقائي — كلمة: "${data.keyword}"
+            </span>
+            <span style="font-size:11px;color:var(--text-muted)">${data.timestamp}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">
+            <i class="fas fa-user" style="color:var(--primary)"></i> <strong>${data.sender}</strong>
+            &nbsp;في&nbsp;
+            <i class="fas fa-hashtag" style="color:var(--warning)"></i> <strong>${data.chat}</strong>
+        </div>
+        <div style="background:rgba(88,101,242,.08);border-right:3px solid var(--primary);padding:8px 10px;border-radius:0 6px 6px 0;margin-bottom:8px;font-size:13px;color:var(--text)">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">رسالة المرسل:</div>
+            ${data.original_msg}
+        </div>
+        <div style="background:rgba(0,212,170,.08);border-right:3px solid var(--accent);padding:8px 10px;border-radius:0 6px 6px 0;font-size:13px;color:var(--accent)">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">↩️ ردي عليه:</div>
+            ${data.reply_msg}
+        </div>`;
+    log.insertBefore(item, log.firstChild);
+    if (log.children.length > 30) log.removeChild(log.lastChild);
+}
+
+// ========================
+// Reset Stats
+// ========================
+async function resetStats() {
+    if (!confirm('هل تريد إعادة تعيين جميع الإحصائيات؟')) return;
+    const resp = await fetch('/api/reset_stats', { method: 'POST' });
+    const data = await resp.json();
+    showToast(data.message, data.success ? 'success' : 'error');
+    autoReplyCount = 0;
+    alertCount = 0;
 }
 
 // ========================

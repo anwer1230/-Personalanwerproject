@@ -38,6 +38,58 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 API_ID = 22043994
 API_HASH = '56f64582b363d367280db96586b97801'
 
+
+def parse_entities(raw_text):
+    """استخراج معرفات/روابط المجموعات من نص مختلط تلقائياً"""
+    entities = []
+    found_raw = set()
+
+    def add(val):
+        k = val.lower().lstrip('@')
+        if k not in found_raw and len(k) >= 4:
+            found_raw.add(k)
+            entities.append(val)
+
+    # روابط دعوة t.me/+HASH
+    for m in re.findall(r'https?://t\.me/\+([A-Za-z0-9_-]+)', raw_text):
+        add(f"+{m}")
+    # روابط joinchat
+    for m in re.findall(r'https?://t\.me/joinchat/([A-Za-z0-9_-]+)', raw_text):
+        add(m)
+    # روابط t.me/username عادية
+    for m in re.findall(r'https?://t\.me/([A-Za-z][A-Za-z0-9_]{3,})', raw_text):
+        add(m)
+    # t.me مختصرة بدون http
+    for m in re.findall(r'(?<![/\w@])t\.me/\+?([A-Za-z0-9_-]{4,})', raw_text):
+        add(m)
+    # @username
+    for m in re.findall(r'@([A-Za-z0-9_]{5,})', raw_text):
+        add(m)
+    # معرفات رقمية (chat IDs) مثل -100xxxxxxxx
+    for m in re.findall(r'(?<!\d)(-100\d{9,})(?!\d)', raw_text):
+        add(m)
+
+    # إذا لا يوجد شيء مستخرج بالأنماط، قسّم بأي فاصل
+    if not entities:
+        for part in re.split(r'[\n,،\s|؛;/\\]+', raw_text):
+            p = part.strip().lstrip('@')
+            if p and len(p) >= 5 and not re.search(r'[أ-ي]', p) and re.match(r'^[A-Za-z0-9_+-]+$', p):
+                add(p)
+
+    return entities
+
+
+def parse_keywords(raw_text):
+    """استخراج كلمات المراقبة من نص مختلط"""
+    seen = set()
+    kws = []
+    for kw in re.split(r'[\n,،|؛;]+', raw_text):
+        kw = kw.strip()
+        if kw and kw.lower() not in seen:
+            seen.add(kw.lower())
+            kws.append(kw)
+    return kws
+
 PREDEFINED_USERS = {
     "user_1": {"id": "user_1", "name": "المستخدم الأول", "icon": "fas fa-user", "color": "#5865f2"},
     "user_2": {"id": "user_2", "name": "المستخدم الثاني", "icon": "fas fa-user-tie", "color": "#3ba55c"},
@@ -211,23 +263,42 @@ class TelegramClientManager:
                             ud2 = USERS.get(self.user_id)
                             if ud2:
                                 ud2.stats['alerts'] = ud2.stats.get('alerts', 0) + 1
+                                socketio.emit('stats_update', dict(ud2.stats), to=self.user_id)
                         socketio.emit('new_alert', alert, to=self.user_id)
-                        socketio.emit('log_update', {"message": f"🚨 تنبيه: '{kw}' في {chat_title}"}, to=self.user_id)
+                        socketio.emit('log_update', {"message": f"🚨 تنبيه: '{kw}' في [{chat_title}] من [{sender_name}]"}, to=self.user_id)
                         try:
-                            notif = f"🚨 تنبيه: {kw}\n📊 {chat_title}\n👤 {sender_name}\n💬 {msg_text[:200]}"
+                            notif = f"🚨 تنبيه كلمة: {kw}\n📍 المجموعة: {chat_title}\n👤 المرسل: {sender_name}\n💬 الرسالة: {msg_text[:200]}"
                             await self.client.send_message('me', notif)
                         except:
                             pass
 
             for rule in auto_replies:
                 kw = rule.get('keyword', '')
-                reply = rule.get('reply', '')
-                if kw and reply and kw.lower() in msg_lower:
+                reply_text = rule.get('reply', '')
+                if kw and reply_text and kw.lower() in msg_lower:
                     try:
-                        await self.client.send_message(await event.get_chat(), reply)
-                        socketio.emit('log_update', {"message": f"🤖 رد تلقائي في {chat_title}"}, to=self.user_id)
-                    except:
-                        pass
+                        sender = await event.get_sender()
+                        sender_name = getattr(sender, 'first_name', '') or getattr(sender, 'username', '') or 'مستخدم'
+                        # الرد مباشرة على الرسالة (reply)
+                        await event.message.reply(reply_text)
+                        with USERS_LOCK:
+                            ud2 = USERS.get(self.user_id)
+                            if ud2:
+                                ud2.stats['replies'] = ud2.stats.get('replies', 0) + 1
+                                socketio.emit('stats_update', dict(ud2.stats), to=self.user_id)
+                        socketio.emit('auto_reply_event', {
+                            "sender": sender_name,
+                            "chat": chat_title,
+                            "original_msg": msg_text[:300],
+                            "reply_msg": reply_text,
+                            "keyword": kw,
+                            "timestamp": datetime.now().strftime('%H:%M:%S')
+                        }, to=self.user_id)
+                        socketio.emit('log_update', {
+                            "message": f"🤖 رد على [{sender_name}] في [{chat_title}] | كلمة: '{kw}'"
+                        }, to=self.user_id)
+                    except Exception as e:
+                        logger.error(f"Auto-reply send error: {e}")
                     break
         except Exception as e:
             logger.error(f"Handle message error: {e}")
@@ -265,38 +336,71 @@ class TelegramClientManager:
         socketio.emit('log_update', {"message": "⏹ تم إيقاف الإرسال المجدول"}, to=self.user_id)
 
     async def _send_to_groups(self, groups, message, image_path):
+        from telethon import functions
         sent = 0
         errors = 0
-        for group in groups:
-            try:
-                entity = group.strip()
-                if not entity.startswith('@') and not entity.lstrip('-').isdigit():
-                    entity = '@' + entity
+        total = len(groups)
+        socketio.emit('log_update', {"message": f"📤 بدء الإرسال إلى {total} مجموعة..."}, to=self.user_id)
 
-                try:
-                    chat = await self.client.get_entity(entity)
-                except:
-                    chat = await self.client.get_entity(int(entity) if entity.lstrip('-').isdigit() else entity)
+        for i, group in enumerate(groups):
+            try:
+                entity_str = group.strip()
+                chat = None
+
+                # رابط دعوة خاص +HASH
+                if entity_str.startswith('+') and len(entity_str) > 8:
+                    try:
+                        result = await self.client(functions.messages.ImportChatInviteRequest(hash=entity_str[1:]))
+                        chat = result.chats[0] if hasattr(result, 'chats') and result.chats else None
+                    except Exception as je:
+                        if 'Already' in str(je) or 'USER_ALREADY' in str(je):
+                            # مسبقاً عضو - ابحث عن المحادثة
+                            async for dialog in self.client.iter_dialogs():
+                                if hasattr(dialog.entity, 'username'):
+                                    chat = dialog.entity
+                                    break
+                        else:
+                            raise je
+                elif entity_str.lstrip('-').isdigit():
+                    chat = await self.client.get_entity(int(entity_str))
+                else:
+                    username = entity_str.lstrip('@')
+                    chat = await self.client.get_entity(f"@{username}")
+
+                if chat is None:
+                    raise Exception("لم يتم العثور على المجموعة")
 
                 if image_path and os.path.exists(image_path):
                     await self.client.send_file(chat, image_path, caption=message or "")
                 elif message:
                     await self.client.send_message(chat, message)
+                else:
+                    raise Exception("لا يوجد محتوى للإرسال")
 
                 sent += 1
-                socketio.emit('log_update', {"message": f"✅ أُرسل إلى {group}"}, to=self.user_id)
+                chat_name = getattr(chat, 'title', None) or getattr(chat, 'username', entity_str)
+                socketio.emit('log_update', {"message": f"✅ [{i+1}/{total}] أُرسل إلى {chat_name}"}, to=self.user_id)
+                with USERS_LOCK:
+                    ud = USERS.get(self.user_id)
+                    if ud:
+                        ud.stats['sent'] = ud.stats.get('sent', 0) + 1
+                        socketio.emit('stats_update', dict(ud.stats), to=self.user_id)
                 await asyncio.sleep(2)
+
             except Exception as e:
                 errors += 1
-                socketio.emit('log_update', {"message": f"❌ خطأ في {group}: {str(e)[:60]}"}, to=self.user_id)
+                socketio.emit('log_update', {"message": f"❌ [{i+1}/{total}] {group}: {str(e)[:80]}"}, to=self.user_id)
+                with USERS_LOCK:
+                    ud = USERS.get(self.user_id)
+                    if ud:
+                        ud.stats['errors'] = ud.stats.get('errors', 0) + 1
+                        socketio.emit('stats_update', dict(ud.stats), to=self.user_id)
+                await asyncio.sleep(1)
 
-        with USERS_LOCK:
-            ud = USERS.get(self.user_id)
-            if ud:
-                ud.stats['sent'] = ud.stats.get('sent', 0) + sent
-                ud.stats['errors'] = ud.stats.get('errors', 0) + errors
-
-        socketio.emit('log_update', {"message": f"📊 اكتمل: {sent} ناجح، {errors} خطأ"}, to=self.user_id)
+        socketio.emit('log_update', {
+            "message": f"📊 اكتمل الإرسال: ✅ {sent} ناجح  ❌ {errors} فاشل  من أصل {total}"
+        }, to=self.user_id)
+        socketio.emit('send_complete', {"sent": sent, "errors": errors, "total": total}, to=self.user_id)
 
 
 def get_or_create_user(user_id):
@@ -383,7 +487,27 @@ def api_get_login_status():
 def api_get_stats():
     uid = get_current_user_id()
     ud = get_or_create_user(uid)
-    return jsonify({"success": True, **ud.stats})
+    stats = {
+        "sent": ud.stats.get("sent", 0),
+        "errors": ud.stats.get("errors", 0),
+        "alerts": ud.stats.get("alerts", 0),
+        "replies": ud.stats.get("replies", 0),
+    }
+    return jsonify({"success": True, **stats})
+
+
+@app.route("/api/parse_input", methods=["POST"])
+def api_parse_input():
+    data = request.json or {}
+    raw = data.get('text', '')
+    mode = data.get('mode', 'groups')
+    if not raw.strip():
+        return jsonify({"success": False, "items": [], "count": 0})
+    if mode == 'keywords':
+        result = parse_keywords(raw)
+    else:
+        result = parse_entities(raw)
+    return jsonify({"success": True, "items": result, "count": len(result)})
 
 
 @app.route("/api/get_settings")
@@ -676,6 +800,16 @@ def api_remove_image():
     return jsonify({"success": True, "message": "✅ تم حذف الصورة"})
 
 
+@app.route("/api/reset_stats", methods=["POST"])
+def api_reset_stats():
+    uid = get_current_user_id()
+    ud = get_or_create_user(uid)
+    with USERS_LOCK:
+        ud.stats = {"sent": 0, "errors": 0, "alerts": 0, "replies": 0}
+    socketio.emit('stats_update', dict(ud.stats), to=uid)
+    return jsonify({"success": True, "message": "✅ تم إعادة تعيين الإحصائيات"})
+
+
 @app.route("/api/send_now", methods=["POST"])
 def api_send_now():
     uid = get_current_user_id()
@@ -685,27 +819,39 @@ def api_send_now():
         return jsonify({"success": False, "message": "❌ يجب تسجيل الدخول أولاً"})
 
     data = request.json or {}
+    raw_groups = data.get('raw_groups', '')
     groups = data.get('groups', [])
     message = data.get('message', '')
 
+    # إذا وُجد نص خام، استخرج المجموعات تلقائياً
+    if raw_groups and not groups:
+        groups = parse_entities(raw_groups)
+
     if not groups:
-        return jsonify({"success": False, "message": "❌ أضف مجموعات أولاً"})
+        return jsonify({"success": False, "message": "❌ لم يتم العثور على أي مجموعات صالحة"})
+
+    if not message:
+        settings = load_settings(uid)
+        if not settings.get('image_path'):
+            return jsonify({"success": False, "message": "❌ أدخل رسالة أو ارفع صورة"})
 
     settings = load_settings(uid)
     image_path = settings.get('image_path')
 
-    socketio.emit('log_update', {"message": f"📤 بدء الإرسال إلى {len(groups)} مجموعة..."}, to=uid)
+    if not ud.client_manager:
+        return jsonify({"success": False, "message": "❌ يجب تسجيل الدخول وتهيئة الاتصال أولاً"})
 
     def send_async():
         try:
             ud.client_manager.run_coroutine(
-                ud.client_manager._send_to_groups(groups, message, image_path)
+                ud.client_manager._send_to_groups(groups, message, image_path),
+                timeout=300
             )
         except Exception as e:
-            socketio.emit('log_update', {"message": f"❌ خطأ: {str(e)[:100]}"}, to=uid)
+            socketio.emit('log_update', {"message": f"❌ خطأ في الإرسال: {str(e)[:150]}"}, to=uid)
 
     threading.Thread(target=send_async, daemon=True).start()
-    return jsonify({"success": True, "message": "✅ جارٍ الإرسال..."})
+    return jsonify({"success": True, "message": f"✅ جارٍ الإرسال إلى {len(groups)} مجموعة..."})
 
 
 @app.route("/api/start_monitoring", methods=["POST"])
